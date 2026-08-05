@@ -1,0 +1,56 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'dev.wasmcart.player'
+    compileSdk 36
+    ndkVersion '27.2.12479018'
+
+    defaultConfig {
+        applicationId 'dev.wasmcart.player'
+        minSdk 33          // V8/libnode floor: Bionic backtrace symbols
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0'
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_PLATFORM=android-33'
+                // SDL2 is EXCLUDE_FROM_ALL in CMake; name it so AGP builds
+                // and packages it alongside libmain.so
+                targets 'main', 'SDL2'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path '../native/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    sourceSets {
+        main {
+            // SDLActivity + friends come from the fetched SDL source tree,
+            // not a vendored copy — one SDL version for Java and C.
+            java.srcDirs += '../deps/SDL/android-project/app/src/main/java'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

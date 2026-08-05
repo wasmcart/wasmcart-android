@@ -1,0 +1,13 @@
+# fetched deps (see deps/fetch-deps.sh)
+/deps/SDL/
+/deps/libnode
+
+# test carts are copied in locally, not shipped in the repo
+/app/src/main/assets/*.wasc
+
+# build output
+/.gradle/
+/build/
+/app/build/
+/app/.cxx/
+/local.properties

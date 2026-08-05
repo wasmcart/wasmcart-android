@@ -1,0 +1,3 @@
+[submodule "deps/wasmcart-native"]
+	path = deps/wasmcart-native
+	url = https://github.com/wasmcart/wasmcart-native.git
