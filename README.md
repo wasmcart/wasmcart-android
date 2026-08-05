@@ -1,10 +1,17 @@
 # wasmcart-android
 
-Slim standalone Android player for [wasmcart](https://github.com/wasmcart/wasmcart)
-carts: one `.wasc` fullscreen, with touch and gamepads. No WebView — the cart
-runs on V8 (via libnode) behind the same shared C host that powers the desktop
-player and the libretro core; this app is the third embedding of
+Turn a [wasmcart](https://github.com/wasmcart/wasmcart) cart into a native
+Android app. One `.wasc` runs fullscreen with touch and gamepads. No WebView:
+the cart runs on V8 (via libnode) behind the same shared C host that powers
+the desktop player and the libretro core; this app is the third embedding of
 [wasmcart-native](https://github.com/wasmcart/wasmcart-native).
+
+Two ways to use it:
+
+1. **Player**: build it as-is and open any `.wasc` from a file manager, or
+   bundle a cart for it to boot into.
+2. **App template for your game**: your cart plus this repo is a complete,
+   store-ready Android app. See [Ship your cart as an app](#ship-your-cart-as-an-app).
 
 - **Engine**: V8 (libnode, android-aarch64). Accepts both legacy and
   standardized wasm exception handling, which the scripting-runtime carts
@@ -31,6 +38,28 @@ cp /path/to/some.wasc app/src/main/assets/cart.wasc   # cart to bundle
 
 Requires an Android SDK with NDK r27 and CMake 3.22 (`local.properties` or
 `ANDROID_HOME`).
+
+## Ship your cart as an app
+
+The player doubles as a template: bundle your cart and rebrand, and the
+result is a self-contained native Android app of YOUR game, no wasmcart
+branding, nothing downloaded at runtime.
+
+1. `cp your-game.wasc app/src/main/assets/cart.wasc` - the app boots straight
+   into it.
+2. In `app/build.gradle`: change `applicationId` (this is your app's identity
+   on the store and on devices, so pick it before shipping and never change
+   it).
+3. In `app/src/main/res/values/strings.xml`: change `app_name` to your title.
+4. Add your launcher icon (`android:icon` in the manifest + mipmap resources).
+5. `./gradlew assembleRelease` (or `bundleRelease` for Play), sign with your
+   own keystore.
+
+Because the game is wasm executed by a bundled VM, this sits inside Play's
+interpreted-code carve-out; the cart ships in the APK itself, so nothing
+executable is fetched at runtime. Same cart still runs unchanged in the
+browser, the desktop player, and RetroArch - the APK is just one more target
+built from the same `.wasc`.
 
 ## Why is the APK ~60MB?
 
