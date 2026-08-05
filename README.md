@@ -39,6 +39,30 @@ cp /path/to/some.wasc app/src/main/assets/cart.wasc   # cart to bundle
 Requires an Android SDK with NDK r27 and CMake 3.22 (`local.properties` or
 `ANDROID_HOME`).
 
+## On-screen controls
+
+Carts that don't use the pointer get an optional on-screen gamepad,
+automatically: shown only while no physical controller is connected (it fades
+out the moment one connects, back in when it drops), and dimmed to
+near-invisible after a few seconds without a touch.
+
+What appears comes from the manifest `controls` hint, so the screen stays as
+minimal as the game: `"controls": ["dpad","a","b","start"]` shows exactly
+that, and fewer controls get bigger targets. Without the hint you get the
+retro default set (dpad, ABXY, start/select, L/R); sticks and triggers only
+appear when declared.
+
+Controls are sized in millimeters from the display DPI (never raw pixels)
+and laid out from the letterbox rect: on tall phones running 4:3-ish carts,
+everything sits inside the letterbox bars - zero game pixels covered. Wider
+carts get translucent dial edges over the game instead. The dpad is an
+eightway area (glide between directions without lifting), face buttons
+support roll-off, a declared `left_stick` becomes a floating auto-centering
+stick, and presses pulse the system vibrator.
+
+Pointer carts (`WC_FLAG_POINTER`) never see any of this - they own the whole
+touchscreen.
+
 ## Ship your cart as an app
 
 The player doubles as a template: bundle your cart and rebrand, and the

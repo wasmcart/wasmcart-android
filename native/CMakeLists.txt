@@ -30,6 +30,7 @@ target_include_directories(cpufeatures PUBLIC "${ANDROID_NDK}/sources/android/cp
 
 add_library(main SHARED
     android_main.c
+    overlay.c
     ${WC_NATIVE}/src/cart_host.cpp
     ${WC_NATIVE}/src/gl_imports.cpp
     ${WC_NATIVE}/src/gl_procs.c

@@ -15,6 +15,7 @@
 
 #include "wasmcart_host.h"
 #include "wc_log.h"
+#include "overlay.h"
 
 #include "SDL.h"
 #include "SDL_main.h"
@@ -52,6 +53,12 @@ static void open_controller(int device_index) {
             return;
         }
     }
+}
+
+static bool any_controller(void) {
+    for (int i = 0; i < MAX_CONTROLLERS; i++)
+        if (controllers[i]) return true;
+    return false;
 }
 
 static void close_controller(SDL_JoystickID id) {
@@ -455,6 +462,22 @@ int main(int argc, char* argv[]) {
         blit_init();
     }
 
+    // On-screen gamepad: only for carts that don't own the touchscreen.
+    // Which controls appear comes from the manifest `controls` hint.
+    bool overlay_on = (info->flags & WC_FLAG_POINTER) == 0;
+    if (overlay_on) {
+        float ddpi = 0.0f;
+        if (SDL_GetDisplayDPI(0, &ddpi, NULL, NULL) != 0 || ddpi <= 0.0f)
+            ddpi = 420.0f; // typical 1080p-class panel
+        uint32_t mask = manifest->controls_set ? manifest->controls
+                                               : WC_CTRL_DEFAULT_SET;
+        overlay_init(mask, ddpi / 25.4f);
+        fit_rect_t gr = fit_rect(cart_w, cart_h, win_w, win_h);
+        overlay_layout(win_w, win_h, gr.x, gr.y, gr.w, gr.h);
+        wc_log("overlay: mask %03x (%s), dpi %.0f\n", mask,
+               manifest->controls_set ? "manifest" : "default set", ddpi);
+    }
+
     // Audio
     SDL_AudioDeviceID audio_dev = 0;
     bool audio_f32 = (info->flags & WC_FLAG_AUDIO_F32) != 0;
@@ -479,6 +502,7 @@ int main(int argc, char* argv[]) {
     uint32_t audio_target_bytes = audio_rate * AUDIO_TARGET_MS / 1000 * audio_bytes_per_frame;
 
     for (int i = 0; i < SDL_NumJoysticks(); i++) open_controller(i);
+    if (overlay_on) overlay_set_visible(!any_controller());
 
     wc_log("running %s (%ux%u, %s)\n", manifest->name, cart_w, cart_h, is_gl ? "GL" : "2D");
 
@@ -536,9 +560,11 @@ int main(int argc, char* argv[]) {
 
                 case SDL_CONTROLLERDEVICEADDED:
                     open_controller(ev.cdevice.which);
+                    if (overlay_on) overlay_set_visible(!any_controller());
                     break;
                 case SDL_CONTROLLERDEVICEREMOVED:
                     close_controller(ev.cdevice.which);
+                    if (overlay_on) overlay_set_visible(!any_controller());
                     break;
 
                 case SDL_KEYDOWN:
@@ -548,10 +574,14 @@ int main(int argc, char* argv[]) {
                     }
                     break;
 
-                // Touch → pointer slots 1-9
+                // Touch → overlay (non-pointer carts) or pointer slots 1-9
                 case SDL_FINGERDOWN:
                 case SDL_FINGERMOTION:
                 case SDL_FINGERUP: {
+                    if (overlay_on) {
+                        overlay_event(&ev, win_w, win_h, (double)SDL_GetTicks64());
+                        break;
+                    }
                     int slot = (ev.type == SDL_FINGERDOWN)
                         ? finger_slot_alloc(ev.tfinger.fingerId)
                         : finger_slot_find(ev.tfinger.fingerId);
@@ -591,8 +621,14 @@ int main(int argc, char* argv[]) {
                 }
 
                 case SDL_WINDOWEVENT:
-                    if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
+                    if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                         SDL_GL_GetDrawableSize(window, &win_w, &win_h);
+                        if (overlay_on) {
+                            const wc_cart_info_t* ci = wc_host_get_cart_info(host);
+                            fit_rect_t gr = fit_rect(ci->width, ci->height, win_w, win_h);
+                            overlay_layout(win_w, win_h, gr.x, gr.y, gr.w, gr.h);
+                        }
+                    }
                     break;
             }
         }
@@ -613,6 +649,7 @@ int main(int argc, char* argv[]) {
         acc_ms += real_delta;
 
         poll_pads(pads);
+        if (overlay_on) overlay_apply(&pads[0]);
         wc_host_set_pads(host, pads);
 
         // Fixed-step with catch-up: wall clock paces, audio queue refines.
@@ -676,6 +713,10 @@ int main(int argc, char* argv[]) {
                 wc_gl_setup_redirect(redir_w, redir_h);
                 wc_log("redirect FBO resized to %ux%u (cart %ux%u)\n",
                        redir_w, redir_h, cart_w, cart_h);
+                if (overlay_on) {
+                    fit_rect_t gr = fit_rect(cart_w, cart_h, win_w, win_h);
+                    overlay_layout(win_w, win_h, gr.x, gr.y, gr.w, gr.h);
+                }
             }
         }
 
@@ -687,6 +728,7 @@ int main(int argc, char* argv[]) {
             const uint8_t* fb = wc_host_get_framebuffer(host, &w, &h);
             if (fb && w > 0 && h > 0) blit_2d_frame(fb, w, h, win_w, win_h);
         }
+        if (overlay_on) overlay_render(is_gl, (double)now);
         SDL_GL_SwapWindow(window); // vsync paces the loop
 
         if (frame_count % SAVE_CHECK_FRAMES == 0) save_persist(host);
@@ -696,6 +738,7 @@ int main(int argc, char* argv[]) {
     wc_host_exit_v8();
     wc_log("shutting down\n");
 
+    if (overlay_on) overlay_shutdown();
     if (audio_dev) SDL_CloseAudioDevice(audio_dev);
     for (int i = 0; i < MAX_CONTROLLERS; i++)
         if (controllers[i]) SDL_GameControllerClose(controllers[i]);
