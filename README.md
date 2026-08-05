@@ -30,8 +30,27 @@ cp /path/to/some.wasc app/src/main/assets/cart.wasc   # cart to bundle
 ```
 
 Requires an Android SDK with NDK r27 and CMake 3.22 (`local.properties` or
-`ANDROID_HOME`). The APK is dominated by V8 (~80MB of native lib); everything
-wasmcart adds is about 1MB.
+`ANDROID_HOME`).
+
+## Why is the APK ~60MB?
+
+Because it ships its own WebAssembly engine, and almost nothing else. Android
+still provides no system wasm runtime for apps: the excellent V8 sitting in
+every device's WebView is not exposed to native code (the closest thing,
+`androidx.javascriptengine`, is an out-of-process JS-eval service that can't
+drive a frame loop). So every app that needs real wasm performance bundles an
+engine - Prime Video ships WAMR, WeChat ships its own runtime for mini-games,
+and we ship V8 via libnode.
+
+V8 specifically, because carts are arbitrary third-party code: they use SIMD,
+threads, and Emscripten's legacy exception opcodes (every Lua/QuickJS/mruby/
+engine-port cart), and they need JIT-class cold starts (a 52MB Godot cart
+loads in ~350ms on V8 versus ~29s AOT-compiling on wasmtime). Smaller
+runtimes fail one or more of those.
+
+The engine is ~58MB of the APK; everything wasmcart adds is about 1MB. If
+Android ever exposes its system V8 to apps, this APK drops to a few MB with
+no cart-visible change.
 
 ## Running carts
 
