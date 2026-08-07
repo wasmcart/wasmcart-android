@@ -9,9 +9,14 @@
 //       -Inative -Ideps/wasmcart-native/include \
 //       $(sdl2-config --cflags --libs) -lGLESv2 -lm
 
-#include "../native/overlay.c"
-
+// overlay.c logs shader/link failures through wc_log.h, whose backing globals
+// normally live in the wasmcart-native library this standalone test does not
+// link. Define them here so the documented build above stays a single gcc line.
 #include <stdio.h>
+FILE* _wc_log_file = NULL;
+long  _wc_log_bytes = 0;
+
+#include "../native/overlay.c"
 
 static int failures = 0;
 static void expect(const char* what, int cond) {

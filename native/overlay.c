@@ -9,6 +9,7 @@
 // of RetroArch's Android misalignment bugs.
 
 #include "overlay.h"
+#include "wc_log.h"
 #include <GLES3/gl3.h>
 #include <math.h>
 #include <string.h>
@@ -461,7 +462,10 @@ static const char* VS =
 static const char* FS =
     "#version 300 es\n"
     "precision mediump float;\n"
-    "uniform vec2 u_half;\n"
+    // u_half is also declared in the vertex shader, where floats default to
+    // highp — GLSL ES requires a shared uniform's precision to match in both
+    // stages, so pin it rather than inheriting mediump from the line above.
+    "uniform highp vec2 u_half;\n"
     "uniform int u_shape, u_dirbits;\n"
     "uniform vec4 u_color;\n"
     "uniform float u_param;\n"
@@ -507,6 +511,14 @@ static GLuint compile(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
     glShaderSource(s, 1, &src, NULL);
     glCompileShader(s);
+    GLint ok = 0;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[512];
+        glGetShaderInfoLog(s, sizeof(log), NULL, log);
+        wc_log_err("overlay %s shader: %s\n",
+                   type == GL_VERTEX_SHADER ? "vertex" : "fragment", log);
+    }
     return s;
 }
 
@@ -520,6 +532,13 @@ void overlay_init(uint32_t controls_mask, float px_per_mm) {
     glAttachShader(prog, vs);
     glAttachShader(prog, fs);
     glLinkProgram(prog);
+    GLint linked = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        char log[512];
+        glGetProgramInfoLog(prog, sizeof(log), NULL, log);
+        wc_log_err("overlay program link: %s\n", log);
+    }
     glDeleteShader(vs);
     glDeleteShader(fs);
     u_screen  = glGetUniformLocation(prog, "u_screen");

@@ -314,6 +314,13 @@ static void blit_init(void) {
     glAttachShader(blit_program, vs);
     glAttachShader(blit_program, fs);
     glLinkProgram(blit_program);
+    GLint blit_linked = 0;
+    glGetProgramiv(blit_program, GL_LINK_STATUS, &blit_linked);
+    if (!blit_linked) {
+        char log[512];
+        glGetProgramInfoLog(blit_program, sizeof(log), NULL, log);
+        wc_log_err("blit program link: %s\n", log);
+    }
     glDeleteShader(vs);
     glDeleteShader(fs);
     glGenVertexArrays(1, &blit_vao);
@@ -366,6 +373,11 @@ int main(int argc, char* argv[]) {
 
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0"); // no ghost mouse from touch
     SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0"); // no ghost touch from mouse
+    // Without this SDL calls setRequestedOrientation(FULL_USER) on the activity,
+    // silently overriding the manifest's sensorLandscape and letting a portrait
+    // rotation squash the cart. Both landscape faces, so the device can still be
+    // held either way round.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
         wc_log_err("SDL_Init failed: %s\n", SDL_GetError());
