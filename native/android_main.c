@@ -377,6 +377,12 @@ int main(int argc, char* argv[]) {
     // silently overriding the manifest's sensorLandscape and letting a portrait
     // rotation squash the cart. Both landscape faces, so the device can still be
     // held either way round.
+    /* The manifest's sensorLandscape is NOT enough: SDLActivity.setOrientation
+     * overrides it at window creation, and a RESIZABLE window with no hint
+     * becomes FULL_USER (13) - which obeys the phone's auto-rotate lock, so a
+     * portrait-locked phone pins a 16:9 game into a letterboxed portrait
+     * strip. The hint is what setOrientation actually reads; both landscapes
+     * keep the rotate-to-either-side behavior players expect. */
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {

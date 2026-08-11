@@ -32,9 +32,14 @@ Two ways to use it:
 ```sh
 ./deps/fetch-deps.sh          # SDL2 source + prebuilt libnode (one-time)
 git submodule update --init   # wasmcart-native (shared host)
-cp /path/to/some.wasc app/src/main/assets/cart.wasc   # cart to bundle
-./gradlew assembleDebug
+./build-game-apk.sh /path/to/game.wasc      # -> out/<game>.apk
 ```
+
+`build-game-apk.sh` stamps the template with the cart (and an `icon.png`
+sitting next to it, if any), then builds. The launcher label and the
+applicationId are derived from the cart's manifest, so each game is its
+own app: "7 Card Stud" and "5 Card Stud" install side by side, and
+nothing on the shelf says wasmcart.
 
 Requires an Android SDK with NDK r27 and CMake 3.22 (`local.properties` or
 `ANDROID_HOME`).

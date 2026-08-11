@@ -11,3 +11,13 @@
 /app/build/
 /app/.cxx/
 /local.properties
+
+# per-game build inputs staged by build-game-apk.sh (defaults live in
+# app/icon-default/; the bundled cart is whatever was built last)
+/app/src/main/assets/cart.wasc
+/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png
+/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png
+/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png
+/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png
+/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png
+/out/

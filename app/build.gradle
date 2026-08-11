@@ -2,17 +2,57 @@ plugins {
     id 'com.android.application'
 }
 
+import java.util.zip.ZipFile
+import groovy.json.JsonSlurper
+
+// The app IS the bundled cart, as far as the player on the couch cares.
+// Read the cart's manifest so the launcher label is the GAME's name and the
+// applicationId is unique per game — bundle a different cart and you get a
+// different app that installs ALONGSIDE the others, not over them.
+def cartManifest() {
+    def f = file('src/main/assets/cart.wasc')
+    if (!f.exists()) return [:]
+    try {
+        def zip = new ZipFile(f)
+        def entry = zip.getEntry('manifest.json')
+        def m = entry ? new JsonSlurper().parse(zip.getInputStream(entry)) : [:]
+        zip.close()
+        return m ?: [:]
+    } catch (Exception e) {
+        return [:]
+    }
+}
+
+def cart = cartManifest()
+def cartName = (cart.name ?: 'wasmcart').toString().trim()
+// "7 Card Stud" -> "seven7cardstud"-safe id segment: lowercase alnum, and a
+// leading letter because Java package segments cannot start with a digit
+def cartSlug = cartName.toLowerCase().replaceAll('[^a-z0-9]', '')
+if (!cartSlug || !Character.isLetter(cartSlug.charAt(0))) cartSlug = 'g' + cartSlug
+// version rides along from the cart manifest: "1.2.3" -> versionCode 10203,
+// so a repacked cart with a bumped version side-loads as an UPDATE
+def cartVersion = (cart.version ?: '0.1.0').toString().trim()
+def vparts = (cartVersion =~ /(\d+)\.(\d+)\.(\d+)/)
+def cartVersionCode = vparts.find() \
+    ? vparts.group(1).toInteger() * 10000 + vparts.group(2).toInteger() * 100 + vparts.group(3).toInteger() \
+    : 1
+if (cartVersionCode < 1) cartVersionCode = 1
+// icon background color, overridable per game: -PiconBg=#RRGGBB
+def iconBg = (project.findProperty('iconBg') ?: '#0E5C29').toString()
+
 android {
     namespace 'dev.wasmcart.player'
     compileSdk 36
     ndkVersion '27.2.12479018'
 
     defaultConfig {
-        applicationId 'dev.wasmcart.player'
+        applicationId 'dev.wasmcart.player.' + cartSlug
         minSdk 33          // V8/libnode floor: Bionic backtrace symbols
         targetSdk 36
-        versionCode 1
-        versionName '0.1.0'
+        versionCode cartVersionCode
+        versionName cartVersion
+        resValue 'string', 'app_name', cartName
+        resValue 'color', 'ic_launcher_background', iconBg
 
         ndk {
             abiFilters 'arm64-v8a'
@@ -54,3 +94,21 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+// The adaptive icon XML references ic_launcher_foreground, but those PNGs
+// are per-game staged files (gitignored). Fill any missing density from the
+// committed defaults in app/icon-default/ so a fresh clone builds before
+// build-game-apk.sh has ever run.
+tasks.register('stageDefaultIcons') {
+    doFirst {
+        ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'].each { d ->
+            def dst = file("src/main/res/mipmap-${d}/ic_launcher_foreground.png")
+            def src = file("icon-default/mipmap-${d}/ic_launcher_foreground.png")
+            if (!dst.exists() && src.exists()) {
+                dst.parentFile.mkdirs()
+                dst.bytes = src.bytes
+            }
+        }
+    }
+}
+tasks.named('preBuild') { dependsOn 'stageDefaultIcons' }

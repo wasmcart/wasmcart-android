@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">wasmcart</string>
+    <!-- app_name comes from the bundled cart manifest (see app/build.gradle) -->
 </resources>
