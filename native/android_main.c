@@ -73,6 +73,14 @@ static void close_controller(SDL_JoystickID id) {
     }
 }
 
+// A trigger is 0..WC_TRIGGER_MAX in ABI v4; SDL's own range for a trigger
+// axis is the same, so this only has to fence off a pad reporting below zero.
+static int16_t clamp_trigger(int v) {
+    if (v < 0) return 0;
+    if (v > WC_TRIGGER_MAX) return WC_TRIGGER_MAX;
+    return (int16_t)v;
+}
+
 static void poll_pads(wc_pad_t pads[WC_MAX_PADS]) {
     memset(pads, 0, sizeof(wc_pad_t) * WC_MAX_PADS);
     for (int i = 0; i < MAX_CONTROLLERS; i++) {
@@ -94,13 +102,35 @@ static void poll_pads(wc_pad_t pads[WC_MAX_PADS]) {
         if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))   pads[i].buttons |= WC_BUTTON_RIGHT;
         if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_LEFTSTICK))    pads[i].buttons |= WC_BUTTON_L3;
         if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_RIGHTSTICK))   pads[i].buttons |= WC_BUTTON_R3;
+        // ABI v4 completes SDL2's controller button set (bits 14-20), matching
+        // the desktop host in wasmcart-native. Without these a cart sees the
+        // guide, share, paddle and touchpad-click buttons on desktop but never
+        // on a phone with the same pad paired.
+        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_GUIDE))        pads[i].buttons |= WC_BUTTON_GUIDE;
+        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_MISC1))        pads[i].buttons |= WC_BUTTON_MISC1;
+        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_PADDLE1))      pads[i].buttons |= WC_BUTTON_PADDLE1;
+        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_PADDLE2))      pads[i].buttons |= WC_BUTTON_PADDLE2;
+        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_PADDLE3))      pads[i].buttons |= WC_BUTTON_PADDLE3;
+        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_PADDLE4))      pads[i].buttons |= WC_BUTTON_PADDLE4;
+        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_TOUCHPAD))     pads[i].buttons |= WC_BUTTON_TOUCHPAD;
 
         pads[i].left_x  = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX);
         pads[i].left_y  = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY);
         pads[i].right_x = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTX);
         pads[i].right_y = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTY);
-        pads[i].left_trigger  = (uint8_t)(SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT) >> 7);
-        pads[i].right_trigger = (uint8_t)(SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) >> 7);
+        // ABI v4 triggers are int16 0..32767, the same range SDL reports, so
+        // there is no scaling left to do. The >> 7 that used to be here
+        // existed only to squeeze SDL's range into a uint8.
+        //
+        // Clamped at zero because the ABI promises a cart a non-negative
+        // trigger, and a miscalibrated or oddly-mapped Android pad can report
+        // a slightly negative axis at rest. Under the old uint8 cast that
+        // wrapped to ~255 and read as fully held; passing it through
+        // unclamped would instead hand a cart a negative "0..32767" value.
+        pads[i].left_trigger  = clamp_trigger(
+            SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT));
+        pads[i].right_trigger = clamp_trigger(
+            SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT));
     }
 }
 

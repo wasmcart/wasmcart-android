@@ -48,8 +48,9 @@ enum { K_DPAD, K_STICK, K_BUTTON, K_RECT };  // K_RECT: shoulders/triggers/pills
 
 typedef struct {
     int      kind;
-    uint16_t bits;        // WC_BUTTON_* set while pressed (buttons/rects)
-    uint8_t  trigger;     // 1 = left trigger, 2 = right (writes 255, not bits)
+    uint32_t bits;        // WC_BUTTON_* set while pressed (buttons/rects)
+    uint8_t  trigger;     // 1 = left trigger, 2 = right (writes an
+                          // analog value, not a button bit)
     float    cx, cy;      // center, window px
     float    hx, hy;      // half extents, px (hx==hy==radius for round kinds)
     int      corner;      // rect hit area extends into this screen corner:
@@ -76,7 +77,7 @@ static float    g_ppmm = 16.5f;      // ~420dpi fallback
 static int      g_win_w = 0, g_win_h = 0;
 
 // dpad/stick live state
-static uint16_t dpad_bits = 0;
+static uint32_t dpad_bits = 0;
 static float    stick_x = 0.0f, stick_y = 0.0f; // -1..1
 static int      dpad_ctl = -1;                  // index of the left dial
 
@@ -117,7 +118,7 @@ static void haptic_pulse(float strength, uint32_t ms) {
 
 static float mm(float v) { return v * g_ppmm; }
 
-static ctl_t* add_ctl(int kind, uint16_t bits, float cx, float cy,
+static ctl_t* add_ctl(int kind, uint32_t bits, float cx, float cy,
                       float hx, float hy, float r, float g, float b) {
     if (n_ctls >= MAX_CTLS) return NULL;
     ctl_t* c = &ctls[n_ctls++];
@@ -204,7 +205,7 @@ void overlay_layout(int win_w, int win_h,
         if (c) c->corner = 2;
     }
 
-    // Triggers: below the shoulders, binary 0/255 (screens have no pressure)
+    // Triggers: below the shoulders, binary 0/WC_TRIGGER_MAX (screens have no pressure)
     float tw = mm(TRIGGER_W_MM) * 0.5f, th = mm(TRIGGER_H_MM) * 0.5f;
     float trig_y = inset + sh * 2.0f + mm(3.0f) + th;
     if (g_mask & WC_CTRL_LTRIG) {
@@ -304,7 +305,7 @@ static touch_t* touch_alloc(SDL_FingerID id) {
 
 // Eightway: direction from angle, diagonals get DIAG_WINDOW_DEG-wide sectors.
 // (RetroArch dpad_area semantics; glide between directions without lifting.)
-static uint16_t eightway_bits(float dx, float dy, float radius) {
+static uint32_t eightway_bits(float dx, float dy, float radius) {
     float len = sqrtf(dx * dx + dy * dy);
     if (len < radius * DPAD_DEADZONE) return 0;
     float ang = atan2f(-dy, dx) * (180.0f / (float)M_PI); // y-down -> y-up
@@ -343,7 +344,7 @@ static void release_ctl(int idx) {
 static void dial_update(touch_t* t, float px, float py) {
     ctl_t* c = &ctls[t->ctl];
     if (c->kind == K_DPAD) {
-        uint16_t nb = eightway_bits(px - c->cx, py - c->cy, c->hx);
+        uint32_t nb = eightway_bits(px - c->cx, py - c->cy, c->hx);
         if (nb != dpad_bits && nb != 0) haptic_pulse(0.35f, 9);
         dpad_bits = nb;
     } else { // K_STICK: floating origin at touch-down, saturating throw
@@ -355,7 +356,7 @@ static void dial_update(touch_t* t, float px, float py) {
         stick_x = ax; stick_y = ay;
         // stick also drives dpad bits when the cart declared both
         if (g_mask & WC_CTRL_DPAD) {
-            uint16_t nb = 0;
+            uint32_t nb = 0;
             if (ay < -0.5f) nb |= WC_BUTTON_UP;
             if (ay >  0.5f) nb |= WC_BUTTON_DOWN;
             if (ax < -0.5f) nb |= WC_BUTTON_LEFT;
@@ -435,8 +436,8 @@ void overlay_apply(wc_pad_t* pad) {
     for (int i = 0; i < n_ctls; i++) {
         if (!ctls[i].pressed) continue;
         pad->buttons |= ctls[i].bits;
-        if (ctls[i].trigger == 1) pad->left_trigger = 255;
-        if (ctls[i].trigger == 2) pad->right_trigger = 255;
+        if (ctls[i].trigger == 1) pad->left_trigger = WC_TRIGGER_MAX;
+        if (ctls[i].trigger == 2) pad->right_trigger = WC_TRIGGER_MAX;
     }
     if ((g_mask & WC_CTRL_LSTICK) && (stick_x != 0.0f || stick_y != 0.0f)) {
         pad->left_x = (int16_t)(stick_x * 32767.0f);
