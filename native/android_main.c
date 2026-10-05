@@ -37,6 +37,9 @@
 // Shared-host internals also used by the desktop player (gl_imports.cpp)
 extern void wc_gl_setup_redirect(uint32_t width, uint32_t height);
 extern void wc_gl_blit_to_screen(uint32_t cart_w, uint32_t cart_h, uint32_t win_w, uint32_t win_h);
+extern void wc_gl_set_direct(int on);
+extern void wc_gl_set_direct_target(uint32_t fbo);
+extern void wc_gl_get_blit_size(uint32_t* w, uint32_t* h);
 
 static SDL_GameController* controllers[MAX_CONTROLLERS] = {0};
 
@@ -430,12 +433,16 @@ int main(int argc, char* argv[]) {
         wc_log("loaded %d controller mappings\n", count);
     }
 
-    // GLES 3.0 context, owned by SDL. The window surface needs no depth —
-    // GL carts render into the redirect FBO which carries its own depth24/s8.
+    // GLES 3.0 context, owned by SDL. The window surface gets depth24/s8 so a
+    // GL cart can draw straight onto it (direct present: no full-screen copy
+    // per frame, which on a phone is ~10 MB of memory traffic a frame). When
+    // the cart cannot (its size differs from the screen's), it renders into
+    // the redirect FBO, which carries its own depth24/s8, as before.
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
     SDL_Window* window = SDL_CreateWindow("wasmcart",
         SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
@@ -453,6 +460,13 @@ int main(int argc, char* argv[]) {
 
     int win_w = 0, win_h = 0;
     SDL_GL_GetDrawableSize(window, &win_w, &win_h);
+    // What the surface really got: direct present needs both
+    int surf_depth = 0, surf_stencil = 0;
+    SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &surf_depth);
+    SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &surf_stencil);
+    bool surface_direct_ok = surf_depth >= 16 && surf_stencil >= 8;
+    wc_log("window surface depth %d stencil %d (direct present %s)\n", surf_depth, surf_stencil,
+           surface_direct_ok ? "available" : "off");
     wc_log("display %dx%d, GL: %s\n", win_w, win_h, (const char*)glGetString(GL_VERSION));
 
     // Host
@@ -699,6 +713,18 @@ int main(int argc, char* argv[]) {
         poll_pads(pads);
         if (overlay_on) overlay_apply(&pads[0]);
         wc_host_set_pads(host, pads);
+
+        // DIRECT PRESENT: when the redirect would be exactly the screen's size
+        // (the usual case here: it is sized to the window) and the cart's own
+        // blit agrees, the cart draws straight onto the surface and the
+        // present copy is skipped. A rotation or a smaller cart falls back.
+        if (is_gl) {
+            uint32_t bw = 0, bh = 0;
+            wc_gl_get_blit_size(&bw, &bh);
+            bool blit_ok = (!bw && !bh) || (bw == redir_w && bh == redir_h);
+            wc_gl_set_direct_target(0);
+            wc_gl_set_direct(surface_direct_ok && blit_ok && redir_w == (uint32_t)win_w && redir_h == (uint32_t)win_h);
+        }
 
         // Fixed-step with catch-up: wall clock paces, audio queue refines.
         int steps = 0;
