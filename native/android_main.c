@@ -714,16 +714,25 @@ int main(int argc, char* argv[]) {
         if (overlay_on) overlay_apply(&pads[0]);
         wc_host_set_pads(host, pads);
 
-        // DIRECT PRESENT: when the redirect would be exactly the screen's size
-        // (the usual case here: it is sized to the window) and the cart's own
-        // blit agrees, the cart draws straight onto the surface and the
-        // present copy is skipped. A rotation or a smaller cart falls back.
+        // DIRECT PRESENT: when the cart renders at exactly the screen's size
+        // (a cart that takes the host's preferred size, which here is the
+        // screen) and its own blit agrees, it draws straight onto the surface
+        // and the present copy is skipped. A fixed-size cart smaller than the
+        // screen, or a rotation, keeps the redirect and its scaling blit.
         if (is_gl) {
             uint32_t bw = 0, bh = 0;
             wc_gl_get_blit_size(&bw, &bh);
-            bool blit_ok = (!bw && !bh) || (bw == redir_w && bh == redir_h);
+            bool blit_ok = (!bw && !bh) || (bw == cart_w && bh == cart_h);
             wc_gl_set_direct_target(0);
-            wc_gl_set_direct(surface_direct_ok && blit_ok && redir_w == (uint32_t)win_w && redir_h == (uint32_t)win_h);
+            bool direct = surface_direct_ok && blit_ok && cart_w == (uint32_t)win_w && cart_h == (uint32_t)win_h &&
+                          redir_w == (uint32_t)win_w && redir_h == (uint32_t)win_h;
+            static int last_direct = -1;
+            if ((int)direct != last_direct) {
+                wc_log("present: %s (cart %ux%u, redirect %ux%u, surface %dx%d, cart blit %ux%u)\n",
+                       direct ? "direct" : "redirect", cart_w, cart_h, redir_w, redir_h, win_w, win_h, bw, bh);
+                last_direct = direct;
+            }
+            wc_gl_set_direct(direct);
         }
 
         // Fixed-step with catch-up: wall clock paces, audio queue refines.
@@ -796,7 +805,10 @@ int main(int argc, char* argv[]) {
 
         // Present
         if (is_gl) {
-            wc_gl_blit_to_screen(redir_w, redir_h, (uint32_t)win_w, (uint32_t)win_h);
+            /* the cart's area of the redirect (it renders at its own size,
+             * from the bottom-left), scaled to fit, as the desktop player
+             * does; the whole redirect was right only when it was cart-sized */
+            wc_gl_blit_to_screen(cart_w, cart_h, (uint32_t)win_w, (uint32_t)win_h);
         } else {
             uint32_t w, h;
             const uint8_t* fb = wc_host_get_framebuffer(host, &w, &h);
