@@ -127,6 +127,10 @@ app without warning), on exit, and on a periodic dirty check.
   `wc_host_set_gl_loader(SDL_GL_GetProcAddress)`. GL carts render into the
   shared host's redirect FBO and are letterboxed to the screen by
   `wc_gl_blit_to_screen`.
+- WebGPU carts ([wasmcart docs/webgpu.md](https://github.com/wasmcart/wasmcart/blob/main/docs/webgpu.md))
+  are not run yet: a WebGPU-only cart is refused at load with the reason,
+  and a cart that also imports GL runs on GL. Running them needs an arm64
+  build of Dawn's `dawn.node`.
 - 2D carts upload their BGRA framebuffer as an RGBA texture and swizzle in
   the blit shader — no `GL_BGRA_EXT` dependency, no CPU conversion.
 - Frame stepping is fixed-step (60Hz cart clock) with wall-clock accumulation,
