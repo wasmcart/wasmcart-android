@@ -572,6 +572,7 @@ int main(int argc, char* argv[]) {
     wc_host_enter_v8();
 
     bool running = true;
+    bool jit_notice_shown = false;
     bool text_started = false;
     bool audio_seen = false;
     bool suspended = false;
@@ -761,6 +762,23 @@ int main(int argc, char* argv[]) {
             }
         }
         if (steps == MAX_STEPS) acc_ms = 0.0; // dropped time, don't spiral
+
+        // Runtime code generation off (WASMCART_JIT=0, intent extra) is a
+        // breaking setting, and the SPEC wants it loud: on the cart's first
+        // JIT call, tell the player on screen. A dialog, not a toast: a toast
+        // is cut to two lines on Android 12+ and gone in seconds. The cart is
+        // paused while it is up; the time spent there is absorbed, as on resume.
+        if (!jit_notice_shown && wc_host_jit_notice(host)) {
+            jit_notice_shown = true;
+            const char* notice = wc_host_jit_notice(host);
+            wc_log("%s\n", notice);
+            if (audio_dev) SDL_PauseAudioDevice(audio_dev, 1);
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING,
+                                     "Runtime code generation is off", notice, window);
+            if (audio_dev) SDL_PauseAudioDevice(audio_dev, 0);
+            last_ticks = SDL_GetTicks64();
+            acc_ms = 0.0;
+        }
 
         // Audio-paced top-up: keep ~AUDIO_TARGET_MS queued so the device never
         // underruns (the anti-choppiness rule from romdev playtest pacing).

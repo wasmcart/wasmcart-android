@@ -3,6 +3,7 @@ package dev.wasmcart.player;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.system.Os;
 import android.util.Log;
 
 import org.libsdl.app.SDLActivity;
@@ -24,6 +25,12 @@ import java.io.OutputStream;
  *
  * The resolved path is handed to native as argv[1]; argv[2] is the saves
  * directory (SDL's getArguments() contract).
+ *
+ * The string extra WASMCART_JIT=0 switches runtime code generation off, the
+ * same switch as wcnative's environment variable (it is set as one, before the
+ * native side starts; a launch without the extra clears it, since the process
+ * can outlive one launch):
+ *   adb shell am start -n <applicationId>/dev.wasmcart.player.WasmcartActivity --es WASMCART_JIT 0
  */
 public class WasmcartActivity extends SDLActivity {
     private static final String TAG = "wasmcart";
@@ -32,6 +39,7 @@ public class WasmcartActivity extends SDLActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         cartPath = resolveCart();
+        applyJitSwitch();
         super.onCreate(savedInstanceState);
     }
 
@@ -50,6 +58,17 @@ public class WasmcartActivity extends SDLActivity {
             return new String[0];
         }
         return new String[] { cartPath, saves.getAbsolutePath() };
+    }
+
+    private void applyJitSwitch() {
+        Intent intent = getIntent();
+        String jit = intent != null ? intent.getStringExtra("WASMCART_JIT") : null;
+        try {
+            if (jit == null) Os.unsetenv("WASMCART_JIT");
+            else Os.setenv("WASMCART_JIT", jit, true);
+        } catch (Exception e) {
+            Log.e(TAG, "WASMCART_JIT: " + e);
+        }
     }
 
     private String resolveCart() {
