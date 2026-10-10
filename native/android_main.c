@@ -137,6 +137,63 @@ static void poll_pads(wc_pad_t pads[WC_MAX_PADS]) {
     }
 }
 
+// ─── Input-action origins (wasmcart SPEC.md, "Input actions") ───────────────
+// Tell the host what a cart's actions are on: per player, the device used
+// last and the controller family. Player 0 is shared by the touchscreen (the
+// on-screen pad or pointer touches), a mouse and controller 0; players 1-3 are
+// controllers only. No keyboard map: this app drives no pad input from keys.
+
+static int pad_family(SDL_GameController* gc) {
+    // Android's InputDevice vendor id first (SDL reads it from there), then
+    // SDL's own guess for pads that hide behind another vendor's id.
+    switch (SDL_GameControllerGetVendor(gc)) {
+    case 0x045e: return WC_HOST_PAD_XBOX;
+    case 0x054c: return WC_HOST_PAD_PLAYSTATION;
+    case 0x057e: return WC_HOST_PAD_NINTENDO;
+    }
+    switch (SDL_GameControllerGetType(gc)) {
+    case SDL_CONTROLLER_TYPE_XBOX360:
+    case SDL_CONTROLLER_TYPE_XBOXONE: return WC_HOST_PAD_XBOX;
+    case SDL_CONTROLLER_TYPE_PS3:
+    case SDL_CONTROLLER_TYPE_PS4:
+    case SDL_CONTROLLER_TYPE_PS5: return WC_HOST_PAD_PLAYSTATION;
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO:
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_PAIR: return WC_HOST_PAD_NINTENDO;
+    default: return WC_HOST_PAD_GENERIC;
+    }
+}
+
+static bool pad_in_use(const wc_pad_t* p) {
+    const int dz = 16000;
+    return p->buttons || p->left_x > dz || p->left_x < -dz || p->left_y > dz || p->left_y < -dz ||
+           p->right_x > dz || p->right_x < -dz || p->right_y > dz || p->right_y < -dz ||
+           p->left_trigger > dz || p->right_trigger > dz;
+}
+
+// p0_dev: player 0's last non-pad device (WC_HOST_DEVICE_TOUCH or
+// _KEYBOARD_MOUSE), updated by touch and mouse events; pads before the on-screen
+// pad is merged in. Calls into the host only when a player's answer changes.
+static void update_input_devices(wc_host_t* host, const wc_pad_t pads[WC_MAX_PADS], int* p0_dev) {
+    static int last_dev[WC_MAX_PADS] = { -1, -1, -1, -1 }, last_fam[WC_MAX_PADS];
+    for (int i = 0; i < WC_MAX_PADS; i++) {
+        SDL_GameController* gc = i < MAX_CONTROLLERS ? controllers[i] : NULL;
+        int dev = gc ? WC_HOST_DEVICE_GAMEPAD : WC_HOST_DEVICE_UNKNOWN;
+        if (i == 0) {
+            if (gc && pad_in_use(&pads[0])) *p0_dev = WC_HOST_DEVICE_GAMEPAD;
+            else if (!gc && *p0_dev == WC_HOST_DEVICE_GAMEPAD) *p0_dev = WC_HOST_DEVICE_TOUCH;
+            dev = *p0_dev;
+        }
+        int fam = dev == WC_HOST_DEVICE_GAMEPAD ? pad_family(gc) : 0;
+        if (dev != last_dev[i] || fam != last_fam[i]) {
+            wc_host_input_device(host, i, dev, fam);
+            last_dev[i] = dev;
+            last_fam[i] = fam;
+        }
+    }
+}
+
 // ─── Rumble backend → SDL_GameControllerRumble (InputDevice vibrator) ──────
 
 static int rumble_has(void* user, uint32_t pad_id) {
@@ -572,6 +629,9 @@ int main(int argc, char* argv[]) {
     wc_host_enter_v8();
 
     bool running = true;
+    bool jit_notice_shown = false;
+    // Player 0 starts on the pad when one is paired, else on the touchscreen
+    int p0_dev = controllers[0] ? WC_HOST_DEVICE_GAMEPAD : WC_HOST_DEVICE_TOUCH;
     bool text_started = false;
     bool audio_seen = false;
     bool suspended = false;
@@ -640,6 +700,7 @@ int main(int argc, char* argv[]) {
                 case SDL_FINGERDOWN:
                 case SDL_FINGERMOTION:
                 case SDL_FINGERUP: {
+                    p0_dev = WC_HOST_DEVICE_TOUCH;
                     if (overlay_on) {
                         overlay_event(&ev, win_w, win_h, (double)SDL_GetTicks64());
                         break;
@@ -668,6 +729,7 @@ int main(int argc, char* argv[]) {
                 case SDL_MOUSEBUTTONDOWN:
                 case SDL_MOUSEBUTTONUP: {
                     if (ev.type != SDL_MOUSEMOTION && ev.button.which == SDL_TOUCH_MOUSEID) break;
+                    p0_dev = WC_HOST_DEVICE_KEYBOARD_MOUSE;
                     int mx, my;
                     uint32_t state = SDL_GetMouseState(&mx, &my);
                     uint8_t buttons = 0;
@@ -711,6 +773,7 @@ int main(int argc, char* argv[]) {
         acc_ms += real_delta;
 
         poll_pads(pads);
+        update_input_devices(host, pads, &p0_dev);
         if (overlay_on) overlay_apply(&pads[0]);
         wc_host_set_pads(host, pads);
 
@@ -761,6 +824,23 @@ int main(int argc, char* argv[]) {
             }
         }
         if (steps == MAX_STEPS) acc_ms = 0.0; // dropped time, don't spiral
+
+        // Runtime code generation off (WASMCART_JIT=0, intent extra) is a
+        // breaking setting, and the SPEC wants it loud: on the cart's first
+        // JIT call, tell the player on screen. A dialog, not a toast: a toast
+        // is cut to two lines on Android 12+ and gone in seconds. The cart is
+        // paused while it is up; the time spent there is absorbed, as on resume.
+        if (!jit_notice_shown && wc_host_jit_notice(host)) {
+            jit_notice_shown = true;
+            const char* notice = wc_host_jit_notice(host);
+            wc_log("%s\n", notice);
+            if (audio_dev) SDL_PauseAudioDevice(audio_dev, 1);
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING,
+                                     "Runtime code generation is off", notice, window);
+            if (audio_dev) SDL_PauseAudioDevice(audio_dev, 0);
+            last_ticks = SDL_GetTicks64();
+            acc_ms = 0.0;
+        }
 
         // Audio-paced top-up: keep ~AUDIO_TARGET_MS queued so the device never
         // underruns (the anti-choppiness rule from romdev playtest pacing).

@@ -116,6 +116,15 @@ no cart-visible change.
 2. **Opened**: the app registers for `.wasc` VIEW intents — open a cart from
    a file manager or Downloads and it plays fullscreen.
 
+Runtime code generation (a cart's JIT) is on by default. The string intent
+extra `WASMCART_JIT=0` switches it off, the same switch as wcnative's
+environment variable; the first time the cart asks for it, a dialog says it is
+off:
+
+```sh
+adb shell am start -n <applicationId>/dev.wasmcart.player.WasmcartActivity --es WASMCART_JIT 0
+```
+
 Saves live in the app's private `files/saves/`, keyed by cart filename + size,
 and are flushed when the app is backgrounded (Android can kill a backgrounded
 app without warning), on exit, and on a periodic dirty check.
